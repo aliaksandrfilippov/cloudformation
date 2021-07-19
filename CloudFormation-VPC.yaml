@@ -1,0 +1,230 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Network, VPC, Subnet, Internet"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Network Configuration"
+        Parameters:
+          - Environment
+          - VPCBlock
+          - VPCBlock2
+      -
+        Label:
+          default: "Subnets CIDR Blocks"
+        Parameters:
+          - PublicSubnetACIDR
+          - PublicSubnetBCIDR
+          - DatabaseSubnetACIDR
+          - DatabaseSubnetBCIDR
+
+Parameters:
+  Environment:
+    Type: String
+    Default: "filippov-Prod"
+
+  VPCBlock:
+    Type: String
+    Default: '10.0.0.0/16'
+
+  VPCBlock2:
+    Type: String
+    Default: '192.0.0.0/16'
+
+  PublicSubnetACIDR:
+    Type: String
+    Default: '10.0.10.0/24'
+    Description: "Public Subnet-A CIDR"
+
+  PublicSubnetBCIDR:
+    Type: String
+    Default: '10.0.20.0/24'
+    Description: "Public Subnet-B CIDR"
+
+  DatabaseSubnetACIDR:
+    Type: String
+    Default: '192.0.30.0/24'
+    Description: "Database Subnet-A CIDR"
+
+  DatabaseSubnetBCIDR:
+    Type: String
+    Default: '192.0.31.0/24'
+    Description: "Database Subnet-B CIDR"
+
+Resources:
+#====== VPC ======
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref Environment
+
+  VPCCidrBlock2:
+    Type: "AWS::EC2::VPCCidrBlock"
+    DependsOn: VPC
+    DeletionPolicy: Delete
+    Properties:
+      CidrBlock: !Ref VPCBlock2
+      VpcId: !Ref VPC
+
+#====== Internet Gateway ======
+  GatewayInternet:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref Environment
+
+  GatewayAttachmentInternet:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref GatewayInternet
+
+#====== Public RouteTable ======
+  RouteTableForPublicSubnet:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join [ "", [ !Ref Environment, "PublicRouteTable"] ]
+
+  RoutesForPublicRouteTable:
+    Type: "AWS::EC2::Route"
+    DependsOn: GatewayAttachmentInternet
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref GatewayInternet
+      RouteTableId: !Ref RouteTableForPublicSubnet
+
+#====== Associate Public Route for Public Subnets ======
+  RouteAssociationPublicA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableForPublicSubnet
+      SubnetId: !Ref PublicSubnetA
+
+  RouteAssociationPublicB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableForPublicSubnet
+      SubnetId: !Ref PublicSubnetB
+
+#====== Route Table and Route Association for Internal only - Databases
+  RouteTableForDatabase:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join [ "", [ !Ref Environment, "DatabaseRouteTable"] ]
+
+  RouteAssociationDatabaseA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableForDatabase
+      SubnetId: !Ref DatabaseSubnetA
+
+  RouteAssociationDatabaseB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableForDatabase
+      SubnetId: !Ref DatabaseSubnetB
+
+#====== All Subnets ======
+  PublicSubnetA:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, "Fn::GetAZs": { Ref: "AWS::Region" } ]
+      CidrBlock: !Ref "PublicSubnetACIDR"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join [ "", [ !Ref Environment, "-Public-A" ] ]
+
+  PublicSubnetB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, "Fn::GetAZs": { Ref: "AWS::Region" } ]
+      CidrBlock: !Ref "PublicSubnetBCIDR"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join [ "", [ !Ref Environment, "-Public-B" ] ]
+
+  DatabaseSubnetA:
+    Type: "AWS::EC2::Subnet"
+    DependsOn: VPCCidrBlock2
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, "Fn::GetAZs": { Ref: "AWS::Region" } ]
+      CidrBlock: !Ref "DatabaseSubnetACIDR"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join [ "", [ !Ref Environment, "-Database-A" ] ]
+
+  DatabaseSubnetB:
+    Type: "AWS::EC2::Subnet"
+    DependsOn: VPCCidrBlock2
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, "Fn::GetAZs": { Ref: "AWS::Region" } ]
+      CidrBlock: !Ref "DatabaseSubnetBCIDR"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join [ "", [ !Ref Environment, "-Database-B" ] ]
+
+#====== Outputs ======
+Outputs:
+  VPC:
+    Description: ID for the VPS
+    Value: !Ref VPC
+    Export:
+      Name: !Join [ "-", [ !Ref "Environment", "VPC" ] ]
+
+  VPCBlock1:
+    Description: Primary CIDR block for the VPC
+    Value: !GetAtt VPC.CidrBlock
+    Export:
+      Name: !Join [ "-", [ !Ref "Environment", "CIDR1" ] ]
+
+  VPCBlock2:
+    Description: Secondary CIDR block for the VPC
+    Value: !Ref VPCBlock2
+    Export:
+      Name: !Join [ "-", [ !Ref "Environment", "CIDR2" ] ]
+
+  PublicA:
+    Description: ID for Public Subnet A
+    Value: !Ref PublicSubnetA
+    Export:
+      Name: !Join [ "-", [ !Ref "Environment", "PublicSubnetA" ] ]
+
+  PublicB:
+    Description: ID for Public Subnet B
+    Value: !Ref PublicSubnetB
+    Export:
+      Name: !Join [ "-", [ !Ref "Environment", "PublicSubnetB" ] ]
+
+  DatabaseA:
+    Description: ID for Database Subnet A
+    Value: !Ref DatabaseSubnetA
+    Export:
+      Name: !Join [ "-", [ !Ref "Environment", "DatabaseSubnetA" ] ]
+
+  DatabaseB:
+    Description: ID for Database Subnet B
+    Value: !Ref DatabaseSubnetB
+    Export:
+      Name: !Join [ "-", [ !Ref "Environment", "DatabaseSubnetB" ] ]
